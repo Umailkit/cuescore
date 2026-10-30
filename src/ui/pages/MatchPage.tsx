@@ -189,6 +189,12 @@ export function MatchPage() {
   // 五套引擎全部落地：只要能读出比赛事实，就给精细记录。
   // 四球没有球台（board 为 null），但加分按钮照常可用。
   const hasEngine = facts !== null;
+  /**
+   * 四球走追分：整场累计，没有「本局」也没有「谁赢了这一局」。
+   * 记分员点的是「发生了什么」（普胜/大金…），分值由规则表算。
+   */
+  const isChase = m.gameType === 'four-ball';
+  const compact = m.players.length > 2;
   const foulReasons = foulReasonOptions(m.gameType);
   // 这里不能用 useMemo：本组件在 current 为 null 时会提前 return，
   // 放在 return 之后的 hook 会让两次渲染的 hook 数量不一致（React #310）。
@@ -274,7 +280,7 @@ export function MatchPage() {
 
   /** 快捷档位：计分命令把「给谁记」一起带上。 */
   const runQuick = (action: { type: MatchCommandType; payload?: Record<string, unknown> }) => {
-    if (action.type === 'ADJUST_SCORE') {
+    if (action.type === 'ADJUST_SCORE' || action.type === 'CHASE_SCORED') {
       run(action.type, { ...action.payload, playerIndex: scoringSeat });
       return;
     }
@@ -366,13 +372,24 @@ export function MatchPage() {
         <Container className="flex flex-1 flex-col py-4">
           {/* ---------- Scoreboard: the hero ----------
               撑满剩余高度：记分牌是主角，不该缩在顶部留一片空黑。 */}
-          <div className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-surface">
+          <div
+            className={cn(
+              'flex flex-col overflow-hidden rounded-3xl border border-border bg-surface',
+              // 两人：记分牌撑满剩余高度，站着也能读；
+              // 三/四人：同样吃掉多余空间，但允许压缩到内容高度，
+              // 保证操作区不被挤到屏幕外（一屏内完成记分）。
+              compact ? 'min-h-0 flex-1' : 'min-h-[280px] flex-1',
+            )}
+          >
             <div className="flex items-center justify-between border-b border-border/60 px-4 py-2">
               <StatusBadge status={m.status} />
               <span className="text-[11px] text-muted">
                 {ended
                   ? `共 ${m.frames.length} 局`
-                  : facts?.points
+                  : isChase && facts?.points
+                    ? // 追分没有「本局」，看到的就是整场总分
+                      `总分 ${m.players.map((_, i) => facts.points?.[i] ?? 0).join(' : ')}`
+                    : facts?.points
                     ? // 计分制玩法：局内分数是主角，局数退到次要位置
                       `本局 ${m.players.map((_, i) => facts.points?.[i] ?? 0).join(' : ')} · 局数 ${wins.join(' : ')}`
                     : tied
@@ -381,7 +398,13 @@ export function MatchPage() {
               </span>
             </div>
 
-            <div className="grid flex-1 grid-cols-2 divide-x divide-border/60">
+            <div
+              className={cn(
+                'grid flex-1 grid-cols-2 divide-x divide-border/60',
+                // 多行时让每行均分高度，格子不会全挤在顶部
+                compact && 'auto-rows-fr',
+              )}
+            >
               {m.players.map((p, i) => {
                 const isActive = i === m.activePlayerIndex && playing;
                 const group = facts?.playerGroups[i] ?? null;
@@ -390,7 +413,10 @@ export function MatchPage() {
                   <div
                     key={i}
                     className={cn(
-                      'relative flex flex-col items-center justify-center px-3 py-4 text-center transition-colors',
+                      'relative flex flex-col items-center justify-center text-center transition-colors',
+                      compact ? 'px-2 py-3' : 'px-3 py-4',
+                      // 四人格里补一条横线，否则上下两排糊在一起
+                      compact && i >= 2 && 'border-t border-border/60',
                       isActive && 'bg-felt/10',
                     )}
                   >
@@ -398,7 +424,11 @@ export function MatchPage() {
                       <span className="absolute inset-x-0 top-0 h-0.5 bg-felt-strong" />
                     )}
                     <div className="flex items-center justify-center gap-1.5">
-                      <span className="truncate text-sm font-semibold">{p.displayName}</span>
+                      <span
+                        className={cn('truncate font-semibold', compact ? 'text-xs' : 'text-sm')}
+                      >
+                        {p.displayName}
+                      </span>
                       {p.isAnonymous && (
                         <span className="shrink-0 rounded bg-surface-2 px-1 text-[9px] text-muted">
                           临时
@@ -408,18 +438,28 @@ export function MatchPage() {
                     </div>
 
                     {/* 主数字随视口高度放大：站着看也读得清。
-                        计分制玩法（六球/四球/斯诺克）显示本局得分，其余显示已赢局数。 */}
+                        计分制玩法显示得分，其余显示已赢局数；
+                        多人时按格子数量收字号，避免把操作区挤出去。 */}
                     <div
                       className={cn(
-                        'tnum my-1 text-[clamp(4.5rem,22vh,13rem)] font-bold leading-[0.85] tracking-tight',
+                        'tnum my-1 font-bold leading-[0.85] tracking-tight',
+                        compact
+                          ? 'text-[clamp(2.5rem,11vh,6rem)]'
+                          : 'text-[clamp(4.5rem,22vh,13rem)]',
                         isActive ? 'text-felt-strong' : 'text-text',
                       )}
                     >
                       {facts?.points ? (facts.points[i] ?? 0) : (wins[i] ?? 0)}
                     </div>
 
-                    {/* 进度点：计分制且目标 ≤9 时表示分数进度，否则表示局数进度 */}
-                    <div className="mt-1 flex items-center justify-center gap-1">
+                    {/* 进度点：计分制且目标 ≤9 时表示分数进度，否则表示局数进度。
+                        追分是整场累计，没有进度可画。 */}
+                    <div
+                      className={cn(
+                        'mt-1 flex items-center justify-center gap-1',
+                        isChase && 'hidden',
+                      )}
+                    >
                       {Array.from({
                         // 不限局数（target=0）时不画进度点
                         length: Math.max(0, Math.min(scoreGoal ?? m.target, 9)),
@@ -438,9 +478,13 @@ export function MatchPage() {
                       ))}
                     </div>
 
-                    <div className="mt-2 h-4 text-[11px] text-muted">
+                    <div
+                      className={cn('text-muted', compact ? 'mt-1 text-[10px]' : 'mt-2 h-4 text-[11px]')}
+                    >
                       {facts?.points
-                        ? `本局得分${scoreGoal ? ` · 目标 ${scoreGoal} 分` : ''}${
+                        ? `${isChase ? '总分' : '本局得分'}${
+                            !isChase && scoreGoal ? ` · 目标 ${scoreGoal} 分` : ''
+                          }${
                             isActive && facts.currentBreak
                               ? ` · 单杆 ${facts.currentBreak}`
                               : ''
@@ -482,8 +526,8 @@ export function MatchPage() {
             )}
           </div>
 
-          {/* ---------- 总分排名总览 ---------- */}
-          {scoreRows.length > 0 && (
+          {/* ---------- 总分排名总览（追分不显示：记分牌上就是总分） ---------- */}
+          {scoreRows.length > 0 && !isChase && (
             <Card className="mt-3 !py-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold">总分排名</span>
@@ -605,8 +649,8 @@ export function MatchPage() {
                     />
                   )}
 
-                  {/* 给谁记分：先选人，再点 +N；不选则跟随当前击球方 */}
-                  {playing && adjustable && (
+                  {/* 给谁记分：先选人，再点档位；不选则跟随当前击球方 */}
+                  {playing && (adjustable || isChase) && (
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <span className="text-[11px] text-muted">给谁记分</span>
@@ -616,7 +660,7 @@ export function MatchPage() {
                             : `已选：${m.players[targetSeat]?.displayName ?? ''}`}
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className={cn('grid gap-2', compact ? 'grid-cols-4' : 'grid-cols-2')}>
                         {m.players.map((p, i) => {
                           const active = scoringSeat === i;
                           return (
@@ -631,7 +675,7 @@ export function MatchPage() {
                               )}
                             >
                               {p.displayName}
-                              {i === m.activePlayerIndex && (
+                              {i === m.activePlayerIndex && !compact && (
                                 <span className="ml-1 text-[10px] font-normal opacity-70">
                                   击球中
                                 </span>
@@ -644,13 +688,19 @@ export function MatchPage() {
                   )}
 
                   {playing && quicks.length > 0 && (
-                    <div className="grid grid-cols-4 gap-2">
+                    <div
+                      className={cn(
+                        'grid gap-2',
+                        isChase ? 'grid-cols-5' : 'grid-cols-4',
+                      )}
+                    >
                       {quicks.map((q) => (
                         <button
                           key={q.label}
                           onClick={() => runQuick(q.action)}
                           className={cn(
-                            'min-h-touch rounded-xl border text-sm font-semibold',
+                            'min-h-touch rounded-xl border font-semibold',
+                            isChase ? 'px-1 text-[13px]' : 'text-sm',
                             // 扣分按钮用中性色，避免和加分抢注意力
                             q.label.startsWith('-')
                               ? 'border-border bg-surface-2 text-muted'
@@ -787,7 +837,8 @@ export function MatchPage() {
                     </Card>
                   )}
 
-                  {playing && (
+                  {/* 追分每结算一次就换下一局，没有「本方回合」要手动结束 */}
+                  {playing && !isChase && (
                     <button
                       onClick={() => run('END_TURN')}
                       className="min-h-touch w-full rounded-xl border border-border bg-surface text-xs text-muted"
@@ -845,40 +896,19 @@ export function MatchPage() {
               </Card>
 
               {/* 不限局数的比赛没有自动收场，必须有人工出口。
-                  COMPLETE_MATCH 是管理员动作，胜方取当前局分领先者。 */}
+                  COMPLETE_MATCH 是管理员动作：按局数或总分判定领先者。
+                  确认弹层是全局的（底部操作栏也能唤起）。 */}
               {!ended && (
                 <Card>
-                  {confirmEnd ? (
-                    <>
-                      <p className="text-xs text-muted">
-                        结束比赛后，胜方按当前已赢局数判定（领先者获胜）。确认？
-                      </p>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          className="min-h-touch flex-1 rounded-lg bg-felt text-xs text-white"
-                          onClick={() => {
-                            setConfirmEnd(false);
-                            run('COMPLETE_MATCH');
-                          }}
-                        >
-                          确认结束
-                        </button>
-                        <button
-                          className="min-h-touch flex-1 rounded-lg border border-border text-xs"
-                          onClick={() => setConfirmEnd(false)}
-                        >
-                          再想想
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmEnd(true)}
-                      className="min-h-touch w-full rounded-lg border border-border text-xs"
-                    >
-                      结束比赛
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setConfirmEnd(true)}
+                    className="min-h-touch w-full rounded-lg border border-border text-xs"
+                  >
+                    结束比赛
+                  </button>
+                  <p className="mt-2 text-[11px] text-muted">
+                    {isChase ? '按累计总分判定名次。' : '按已赢局数判定，领先者获胜。'}
+                  </p>
                 </Card>
               )}
 
@@ -954,6 +984,21 @@ export function MatchPage() {
             >
               开始下一局
             </button>
+          ) : isChase ? (
+            /*
+              追分没有「这一局谁赢了」：分是逐个得分类型累出来的，
+              所以主操作改成「结束并结算」，避免记分员被一个不存在的概念困住。
+            */
+            <button
+              disabled={busy}
+              onClick={() => setConfirmEnd(true)}
+              className="min-h-[60px] w-full rounded-xl border-2 border-border bg-surface-2 text-base font-semibold transition-colors disabled:opacity-50 active:scale-[0.98]"
+            >
+              结束比赛
+              <span className="mt-0.5 block text-[10px] font-normal text-muted">
+                按累计总分结算
+              </span>
+            </button>
           ) : (
             /*
               主操作永远只有一件事：「本局谁赢了」。
@@ -961,7 +1006,7 @@ export function MatchPage() {
               记分员不该为了记一局先学一遍状态机。
             */
             <div className="grid grid-cols-2 gap-2">
-              {m.players.slice(0, 2).map((p, i) => (
+              {m.players.slice(0, 4).map((p, i) => (
                 <button
                   key={i}
                   disabled={busy}
@@ -999,6 +1044,43 @@ export function MatchPage() {
             <ActionButton label="重做" disabled={!redoable} onClick={() => void redo()} />
           </div>
         </ActionBar>
+      )}
+
+      {/* 全局「结束比赛」确认：底部操作栏与「更多」都能唤起同一个确认 */}
+      {confirmEnd && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-6"
+          onClick={() => setConfirmEnd(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-surface p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold">结束这场比赛？</p>
+            <p className="mt-1 text-xs text-muted">
+              {isChase
+                ? '按累计总分判定名次。结束后不能再记分，记录会保留。'
+                : '按已赢局数判定，领先者获胜。记录会保留。'}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                className="min-h-touch rounded-xl bg-felt text-sm font-semibold text-white"
+                onClick={() => {
+                  setConfirmEnd(false);
+                  run('COMPLETE_MATCH');
+                }}
+              >
+                确认结束
+              </button>
+              <button
+                className="min-h-touch rounded-xl border border-border text-sm"
+                onClick={() => setConfirmEnd(false)}
+              >
+                再想想
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Rejected-command notice */}

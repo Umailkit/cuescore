@@ -286,9 +286,40 @@ export class MatchService {
     let nextStatus = statusForCommand(command.type) ?? status;
 
     if (command.type === 'COMPLETE_MATCH') {
-      // Ending the series is a match-level decision. The winner is whoever leads
-      // on frames — derived from recorded results, never from "who was on strike".
-      winnerPlayerId = this.leaderOf(frames, current.players);
+      // 整场累计的玩法（追分）没有「局」：把总分当成一局快照落下来，
+      // 否则胜方和排名都拿不到分数。事件同样带上，保证重放不丢。
+      const totals = engine?.getFrameScores?.(reduced.state) ?? null;
+      if (frames.length === 0 && totals) {
+        let best = 0;
+        for (let i = 1; i < current.players.length; i += 1) {
+          if ((totals[i] ?? 0) > (totals[best] ?? 0)) best = i;
+        }
+        const winId = current.players[best]?.playerId ?? null;
+        winnerPlayerId = winId;
+        frames = [
+          {
+            index: currentFrame,
+            winnerPlayerIndex: best,
+            winnerPlayerId: winId,
+            detail: `总分 ${totals[best] ?? 0}`,
+            scores: totals,
+          },
+        ];
+        const wonEvent = events.find((e) => e.type === 'MATCH_WON');
+        if (wonEvent) {
+          wonEvent.payload = {
+            ...wonEvent.payload,
+            winnerPlayerIndex: best,
+            winnerPlayerId: winId,
+            scores: totals,
+          };
+        }
+      } else {
+        // Ending the series is a match-level decision. The winner is whoever
+        // leads on frames — derived from recorded results, never from "who was
+        // on strike".
+        winnerPlayerId = this.leaderOf(frames, current.players);
+      }
     }
 
     if (command.type === 'SWITCH_PLAYER') {

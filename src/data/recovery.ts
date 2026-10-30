@@ -37,6 +37,20 @@ interface FrameWonPayload {
 function replayFrames(events: MatchEvent[]): FrameResult[] {
   const frames: FrameResult[] = [];
   for (const e of events) {
+    // 追分这类整场累计的玩法没有「局」，总分随 MATCH_WON 落盘。
+    // 若不在这里补一局，从 EventLog 重建时胜负与排名都会丢分。
+    if (e.type === 'MATCH_WON') {
+      const mp = e.payload as FrameWonPayload;
+      if (mp.scores && frames.length === 0) {
+        frames.push({
+          index: 1,
+          winnerPlayerIndex: typeof mp.winnerPlayerIndex === 'number' ? mp.winnerPlayerIndex : 0,
+          winnerPlayerId: mp.winnerPlayerId ?? null,
+          scores: mp.scores,
+        });
+      }
+      continue;
+    }
     if (e.type !== 'FRAME_WON' && e.type !== 'FRAME_LOST') continue;
     const p = e.payload as FrameWonPayload;
     const winnerIndex =

@@ -48,7 +48,15 @@ export type MatchCommandType =
    * 与 `SCORE` 的区别：`SCORE` 是「这一杆进了哪颗球」，分值由引擎按球解释；
    * `ADJUST_SCORE` 是记分员直接给分 —— 记错要改、或者这个玩法本来就不看球号。
    */
-  | 'ADJUST_SCORE';
+  | 'ADJUST_SCORE'
+  /**
+   * 追分结算（四球）：`payload.kind` 为得分类型
+   * （normal / smallGold / bigGold / goldNine / blackGold）。
+   *
+   * 与服务层的区别：分值是**规则表算出来的**，不是用户填的 ——
+   * 上家/下家该赔多少由 `core/engine/fourBall/chase.ts` 决定。
+   */
+  | 'CHASE_SCORED';
 
 export interface MatchCommand {
   type: MatchCommandType;
@@ -97,6 +105,7 @@ export const ENGINE_COMMAND_TYPES: readonly MatchCommandType[] = [
   'SCORE',
   'END_BREAK',
   'ADJUST_SCORE',
+  'CHASE_SCORED',
 ];
 
 export function isEngineCommand(type: MatchCommandType): boolean {

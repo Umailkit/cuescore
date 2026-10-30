@@ -57,13 +57,15 @@ const RULESETS: Record<GameType, MatchTemplate['ruleSet']> = {
   },
   'four-ball': {
     id: ruleSetId('four-ball'),
-    name: 'CueScore Standard 四球',
-    version: '1.0.0',
-    description: '+1 / +4 / +8 / +10 快捷加分（可扣分）；默认犯规为对手 +1。本产品默认口径，非行业统一规则。',
+    name: 'CueScore 追分规则（四球）',
+    version: '2.0.0',
+    description:
+      '追分：普胜 +4、小金 +7、大金 +20、黄金九 +8、黑金 -20，由上家/下家按规则表赔付。',
     source: 'CueScore',
     config: {
-      scoring: { p1: 1, p2: 4, p3: 8, custom: 10 },
-      quickPoints: [1, 4, 8, 10],
+      scoring: { p1: 4, p2: 7, p3: 10, custom: 10 },
+      // 追分按整场累计，不设「达到多少分结束本局」
+      targetPoints: 0,
       foul: 'opponent_plus_1',
     },
   },
@@ -110,12 +112,12 @@ export const MATCH_TEMPLATES: MatchTemplate[] = [
     ruleSet: RULESETS['six-ball'],
   },
   {
-    id: 'four-ball.standard.2p',
+    id: 'four-ball.chase.4p',
     gameType: 'four-ball',
-    name: '标准四球 · 2 人',
-    description: '两人，+1/+2/+3 自定义加分（CueScore Standard）。',
+    name: '四球追分 · 不限局数',
+    description: '3–4 人，按追分规则表结算（上家/下家赔付），整场累计。',
     matchFormat: 'singles',
-    target: 15,
+    target: 0,
     ruleSet: RULESETS['four-ball'],
   },
   {

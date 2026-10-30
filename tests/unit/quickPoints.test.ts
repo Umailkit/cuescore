@@ -53,21 +53,32 @@ describe('快捷档位：加一 / 加四 / 加八 / 加十', () => {
     expect(labels).toEqual(['+1', '+4', '+8', '+10', '-1', '-4', '-8', '-10']);
   });
 
-  it('四球同样使用 1 / 4 / 8 / 10', () => {
-    const labels = quickActions('four-ball', FOUR.ruleSet.config).map((q) => q.label);
-    expect(labels).toEqual(['+1', '+4', '+8', '+10', '-1', '-4', '-8', '-10']);
+  it('四球不是档位，而是追分五档得分类型', () => {
+    const actions = quickActions('four-ball', FOUR.ruleSet.config);
+    expect(actions.map((q) => q.label)).toEqual(['普胜', '小金', '大金', '黄金九', '黑金']);
+    expect(actions.map((q) => q.hint)).toEqual(['+4', '+7', '+20', '+8', '-20']);
+    expect(actions.map((q) => q.action.payload?.kind)).toEqual([
+      'normal',
+      'smallGold',
+      'bigGold',
+      'goldNine',
+      'blackGold',
+    ]);
+    expect(actions.every((q) => q.action.type === 'CHASE_SCORED')).toBe(true);
   });
 
-  it('档位由规则集配置决定，可覆盖', () => {
-    const labels = quickActions('four-ball', { quickPoints: [2, 3] }).map((q) => q.label);
+  it('档位由规则集配置决定，可覆盖（九球记分制）', () => {
+    const labels = quickActions('nine-ball', {
+      ...NINE.ruleSet.config,
+      quickPoints: [2, 3],
+    }).map((q) => q.label);
     expect(labels).toEqual(['+2', '+3', '-2', '-3']);
   });
 
   it('非法档位配置回落到默认值', () => {
-    expect(quickActions('four-ball', { quickPoints: [0, -1, 'x'] })).toHaveLength(
-      DEFAULT_QUICK_POINTS.length * 2,
-    );
-    expect(quickActions('four-ball', undefined).map((q) => q.label)).toEqual([
+    const config = { ...NINE.ruleSet.config, quickPoints: [0, -1, 'x'] };
+    expect(quickActions('nine-ball', config)).toHaveLength(DEFAULT_QUICK_POINTS.length * 2);
+    expect(quickActions('nine-ball', NINE.ruleSet.config).map((q) => q.label)).toEqual([
       '+1',
       '+4',
       '+8',
@@ -80,9 +91,11 @@ describe('快捷档位：加一 / 加四 / 加八 / 加十', () => {
   });
 
   it('档位按钮发出的命令就是 ADJUST_SCORE + 对应分值', () => {
-    const plus8 = quickActions('four-ball', FOUR.ruleSet.config).find((q) => q.label === '+8')!;
+    const plus8 = quickActions('nine-ball', NINE.ruleSet.config).find((q) => q.label === '+8')!;
     expect(plus8.action).toEqual({ type: 'ADJUST_SCORE', payload: { points: 8 } });
-    const minus10 = quickActions('four-ball', FOUR.ruleSet.config).find((q) => q.label === '-10')!;
+    const minus10 = quickActions('nine-ball', NINE.ruleSet.config).find(
+      (q) => q.label === '-10',
+    )!;
     expect(minus10.action).toEqual({ type: 'ADJUST_SCORE', payload: { points: -10 } });
   });
 });

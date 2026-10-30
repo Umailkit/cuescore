@@ -15,6 +15,7 @@ import { resolveNineBallRules } from '@core/engine/nineBall/rules';
 import { SIX_BALL_NUMBERS, SIX_BALL_FOUL_LABELS, type SixBallState } from '@core/engine/sixBall/types';
 import { resolveSixBallRules } from '@core/engine/sixBall/rules';
 import { FOUR_BALL_FOUL_LABELS, type FourBallState } from '@core/engine/fourBall/types';
+import { CHASE_ORDER, CHASE_RULES, chaseNet } from '@core/engine/fourBall/chase';
 import { resolveFourBallRules } from '@core/engine/fourBall/rules';
 import {
   BALL_VALUES,
@@ -566,13 +567,23 @@ function deductActions(values: readonly number[]): QuickAction[] {
 /**
  * 玩法专属的快捷操作（app 层按 gameType 派生，UI 照发）。
  *
- * 四球没有球台，主操作就是加分；斯诺克要能「结束单杆」。
+ * 四球走追分：五个得分类型，分值由规则表算，不让记分员填。
+ * 斯诺克要能「结束单杆」。
  */
 export function quickActions(gameType: GameType, ruleSetConfig: unknown): QuickAction[] {
   if (gameType === 'four-ball') {
-    // 加与扣成对给：记错了直接扣回来，不用绕路
-    const tiers = quickPointsOf(ruleSetConfig);
-    return [...addActions(tiers), ...deductActions(tiers)];
+    return CHASE_ORDER.map((kind) => {
+      const rule = CHASE_RULES[kind];
+      const net = chaseNet(kind);
+      return {
+        label: rule.label,
+        hint: `${net > 0 ? '+' : ''}${net}`,
+        action: {
+          type: 'CHASE_SCORED' as MatchCommandType,
+          payload: { kind },
+        },
+      };
+    });
   }
   if (gameType === 'nine-ball') {
     const rules = resolveNineBallRules(ruleSetConfig as Record<string, unknown> | null);

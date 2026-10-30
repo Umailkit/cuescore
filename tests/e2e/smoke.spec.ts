@@ -41,12 +41,13 @@ test('shell renders, dark theme, PWA manifest present', async ({ page }) => {
 });
 
 /** 五种游戏类型 × 各自的一键模板（PHASE 3 门控解除后的完整矩阵）。 */
-const PLAYABLE: { label: string; template: string }[] = [
-  { label: '中式八球', template: '标准娱乐赛 · 2 人 · Race To 7' },
-  { label: '九球', template: '标准九球 · 2 人 · Race To 7' },
-  { label: '六球', template: '标准六球 · 2 人 · 7 分' },
-  { label: '四球', template: '标准四球 · 2 人' },
-  { label: '斯诺克', template: '标准斯诺克 · Best Of 5' },
+const PLAYABLE: { label: string; template: string; mode: 'frame' | 'chase' }[] = [
+  { label: '中式八球', template: '标准娱乐赛 · 2 人 · Race To 7', mode: 'frame' },
+  { label: '九球', template: '标准九球 · 2 人 · Race To 7', mode: 'frame' },
+  { label: '六球', template: '标准六球 · 2 人 · 7 分', mode: 'frame' },
+  // 四球是追分：没有「本局谁赢了」，得分类型才是主操作
+  { label: '四球', template: '四球追分 · 不限局数', mode: 'chase' },
+  { label: '斯诺克', template: '标准斯诺克 · Best Of 5', mode: 'frame' },
 ];
 
 test('no game type is gated behind PHASE 3 any more', async ({ page }) => {
@@ -70,6 +71,14 @@ for (const g of PLAYABLE) {
 
     await page.getByRole('button', { name: /^开始比赛$/ }).click();
     await expect(page.getByText('进行中')).toBeVisible();
+
+    // 追分：点「普胜」，上家赔 4 分给本家
+    if (g.mode === 'chase') {
+      await page.getByRole('button', { name: /精细记录/ }).click();
+      await page.getByRole('button', { name: /^普胜/ }).click();
+      await expect(page.getByText(/总分 4 : -4/).first()).toBeVisible();
+      return;
+    }
 
     // 主操作：本局谁赢了 → 点一下就记一局并自动开下一局
     await page.getByRole('button', { name: 'Ann 赢' }).click();

@@ -36,7 +36,9 @@ export function resolveFourBallRules(
       d.foul,
     ),
     foulPenalty: Math.max(0, asNumber(c.foulPenalty, d.foulPenalty)),
-    targetPoints: Math.max(1, asNumber(c.targetPoints, d.targetPoints)),
+    // 0 = 不按目标分结束（追分整场累计）。不能像以前那样钳到 ≥1，
+    // 否则任何一次得分都会当场判胜。
+    targetPoints: Math.max(0, Math.floor(asNumber(c.targetPoints, d.targetPoints))),
     foulSwitchesTurn: asBoolean(c.foulSwitchesTurn, d.foulSwitchesTurn),
   };
 }

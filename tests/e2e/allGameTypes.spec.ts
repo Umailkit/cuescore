@@ -8,7 +8,7 @@ import path from 'node:path';
  * 而是 **用户在 UI 上真的够得着这些规则**：
  *   九球：记分制，+1/+4/+8/+10 快捷档位
  *   六球：计分制，进一颗得一分
- *   四球：加分制，+1/+4/+8/+10 快捷档位，记错能扣
+ *   四球：追分，五种得分类型由上家/下家赔付
  *   斯诺克：红球 → 彩球 → 结束单杆换手
  *   排名：每局比分累计进总分排名
  */
@@ -71,48 +71,63 @@ test('six-ball: potting scores points and shows them on the scoreboard', async (
   await page.screenshot({ path: `${OUT}/p3-six-scored.png`, fullPage: true });
 });
 
-test('four-ball: quick +1/+4/+8/+10 buttons add points directly', async ({ page }) => {
+test('four-ball: five chase outcomes settle between neighbours', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  await createMatch(page, '四球', '标准四球 · 2 人');
+  await createMatch(page, '四球', '四球追分 · 不限局数');
 
-  for (const label of ['+1', '+4', '+8', '+10', '-1', '-4', '-8', '-10']) {
-    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+  // 五个得分类型都在，且带净得分提示
+  for (const [label, hint] of [
+    ['普胜', '+4'],
+    ['小金', '+7'],
+    ['大金', '+20'],
+    ['黄金九', '+8'],
+    ['黑金', '-20'],
+  ] as const) {
+    const btn = page.getByRole('button', { name: new RegExp(`^${label}`) });
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText(hint);
   }
 
-  await page.getByRole('button', { name: '+8', exact: true }).click();
-  await expect(page.getByText(/本局 8 : 0/).first()).toBeVisible();
+  // 两人局：普胜 = 上家（对手）赔 4 分，本家 +4
+  await page.getByRole('button', { name: /^普胜/ }).click();
+  await expect(page.getByText(/总分 4 : -4/).first()).toBeVisible();
 
-  // 扣分：记错了能扣回来
-  await page.getByRole('button', { name: '-1', exact: true }).click();
-  await expect(page.getByText(/本局 7 : 0/).first()).toBeVisible();
-  await page.screenshot({ path: `${OUT}/p3-four-scored.png`, fullPage: true });
+  await page.getByRole('button', { name: /^小金/ }).click();
+  await expect(page.getByText(/总分 11 : -11/).first()).toBeVisible();
+
+  // 黑金：本家赔给对手（两人局里上/下家是同一个人）各 10 分，净得 -20
+  await page.getByRole('button', { name: /^黑金/ }).click();
+  await expect(page.getByText(/总分 -9 : 9/).first()).toBeVisible();
+
+  // 记错了能撤销
+  await page.getByRole('button', { name: '撤销' }).click();
+  await expect(page.getByText(/总分 11 : -11/).first()).toBeVisible();
+
+  await page.screenshot({ path: `${OUT}/p3-chase-scored.png`, fullPage: true });
 });
 
-test('four-ball: the points can be given to a chosen player', async ({ page }) => {
+test('four-ball: the outcome can be credited to a chosen player', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  await createMatch(page, '四球', '标准四球 · 2 人');
+  await createMatch(page, '四球', '四球追分 · 不限局数');
 
-  // 先选人，再点档位 —— 分记到被选中的人身上
+  // 先选人，再点得分类型 —— 结算围绕被选中的人做
   await page.getByRole('button', { name: '李四', exact: true }).click();
   await expect(page.getByText('已选：李四')).toBeVisible();
 
-  await page.getByRole('button', { name: '+4', exact: true }).click();
-  await expect(page.getByText(/本局 0 : 4/).first()).toBeVisible();
+  await page.getByRole('button', { name: /^普胜/ }).click();
+  await expect(page.getByText(/总分 -4 : 4/).first()).toBeVisible();
 
-  // 换人：给张三加 1 分，两边各记各的
-  await page.getByRole('button', { name: /^张三(击球中)?$/ }).click();
-  await page.getByRole('button', { name: '+1', exact: true }).click();
-  await expect(page.getByText(/本局 1 : 4/).first()).toBeVisible();
-
-  await page.screenshot({ path: `${OUT}/p3-target-seat.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/p3-chase-target-seat.png`, fullPage: true });
 });
 
 test('leaderboard: frame scores roll up into a total ranking', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  await createMatch(page, '四球', '标准四球 · 2 人');
+  // 用六球：它按局结算，分数会随本局快照落进历史
+  await createMatch(page, '六球', '标准六球 · 2 人 · 7 分');
 
-  await page.getByRole('button', { name: '+8', exact: true }).click();
-  await expect(page.getByText(/本局 8 : 0/).first()).toBeVisible();
+  await page.locator('[data-ball="1"]').click();
+  await page.locator('[data-ball="2"]').click();
+  await expect(page.getByText(/本局 2 : 0/).first()).toBeVisible();
 
   // 记下这一局（分数随本局快照进入历史；应用会自动开下一局）
   await page.getByRole('button', { name: /^张三 赢/ }).click();
@@ -121,7 +136,7 @@ test('leaderboard: frame scores roll up into a total ranking', async ({ page }) 
   await page.goto('/leaderboard');
   const first = page.locator('[data-rank-row]').first();
   await expect(first).toContainText('张三');
-  await expect(first).toHaveAttribute('data-total', '8');
+  await expect(first).toHaveAttribute('data-total', '2');
   await expect(page.locator('[data-rank-row]')).toHaveCount(2);
 
   await page.screenshot({ path: `${OUT}/p3-leaderboard.png`, fullPage: true });

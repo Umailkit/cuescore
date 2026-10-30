@@ -9,6 +9,7 @@ import {
   type ScoreRecord,
 } from './types';
 import { resolveFourBallRules } from './rules';
+import { CHASE_RULES, chaseDeltas, chaseNet, type ChaseKind } from './chase';
 import { createId } from '../../util/id';
 
 export interface FourBallResult extends EngineResult<FourBallState> {
@@ -33,11 +34,13 @@ function foulOf(reason: FoulReason, detail?: string): FoulRecord {
 }
 
 /**
- * FourBallEngine —— CueScore Standard 四球（纯加分制）。
+ * FourBallEngine —— 四球（追分口径）。
  *
- * 引擎不做任何「这颗球值几分」的推断：分值由记分员通过 `SCORE` 命令给出
- * （payload.points），或使用配置里的快捷档位（+1 / +2 / +3）。
- * 这正是模板描述「+1 / +2 / +3 / 自定义加分」的含义。
+ * 主操作是五种得分类型：普胜 / 小金 / 大金 / 黄金九 / 黑金。
+ * 分值不由记分员输入，而是由规则表推导出「上家赔多少、下家赔多少」，
+ * 本家净得就是两边赔付之和 —— 零和，谁都不会凭空多出分来。
+ *
+ * 同时保留 `SCORE` / `ADJUST_SCORE` 作为兼容与改账入口。
  */
 export class FourBallEngine implements GameEngine<FourBallState> {
   readonly gameType = 'four-ball' as const;
@@ -95,6 +98,8 @@ export class FourBallEngine implements GameEngine<FourBallState> {
         return this.onScore(state, command, ctx, rules, trace);
       case 'ADJUST_SCORE':
         return this.onAdjustScore(state, command, ctx, rules, trace);
+      case 'CHASE_SCORED':
+        return this.onChase(state, command, ctx, trace);
       case 'BALL_MISSED':
         return this.onFoul(state, { type: 'FOUL', payload: { reason: 'NO_CONTACT' } }, ctx, rules, trace);
       case 'FOUL':
@@ -110,6 +115,84 @@ export class FourBallEngine implements GameEngine<FourBallState> {
       default:
         return { state, events: [], trace: trace('非四球指令', 'IGNORED') };
     }
+  }
+
+  /**
+   * 追分结算：按规则表在座位之间转移分值。
+   *
+   * 记分员只点「发生了什么」，不填分 —— 分是规则算出来的。
+   * 一次结算可能同时改动三个座位（大金 / 黄金九 / 黑金），
+   * 但只占一步撤销，因为它们是同一条命令产生的多个事件。
+   */
+  private onChase(
+    state: FourBallState,
+    command: MatchCommand,
+    ctx: EngineContext,
+    trace: (d: string, v: FourBallResult['trace']['validation']) => FourBallResult['trace'],
+  ): FourBallResult {
+    const raw = (command.payload ?? {}) as { kind?: unknown; playerIndex?: unknown };
+    const kind = String(raw.kind ?? '') as ChaseKind;
+    const rule = CHASE_RULES[kind];
+    if (!rule) {
+      const t = trace(`未知的得分类型 ${String(raw.kind)}`, 'ILLEGAL');
+      t.reasons.push(`可选：${Object.keys(CHASE_RULES).join(' / ')}`);
+      return { state, events: [], trace: t };
+    }
+
+    // 记分员可以先选定「算谁的」，不传则算当前击球方。
+    const seats = Math.max(1, Object.keys(state.points).length || ctx.players.length);
+    let seat = state.activePlayerIndex;
+    if (raw.playerIndex !== undefined && raw.playerIndex !== null) {
+      const idx = Number(raw.playerIndex);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= seats) {
+        const t = trace(`无效的球员席位 ${String(raw.playerIndex)}`, 'ILLEGAL');
+        t.reasons.push(`本场只有 ${seats} 位选手`);
+        return { state, events: [], trace: t };
+      }
+      seat = idx;
+    }
+
+    const deltas = chaseDeltas(kind, seat, seats);
+    const points = { ...state.points };
+    const scoreLog = [...state.scoreLog];
+    const events: MatchEvent[] = [];
+
+    for (const key of Object.keys(deltas).sort((a, b) => Number(a) - Number(b))) {
+      const s = Number(key);
+      const delta = deltas[s] ?? 0;
+      if (!delta) continue;
+      points[s] = (points[s] ?? 0) + delta;
+      scoreLog.push({
+        playerIndex: s,
+        points: delta,
+        turnNumber: state.turnNumber,
+        source: 'chase',
+        chaseKind: kind,
+      });
+      events.push(
+        makeEvent('SCORE_ADDED', {
+          playerIndex: s,
+          points: delta,
+          reason: 'chase',
+          chaseKind: kind,
+          // 只有本家那一条算「一次得分」，否则重放会把一次结算数成三次
+          ...(s === seat ? { continues: true } : {}),
+        }),
+      );
+    }
+
+    const net = chaseNet(kind);
+    const t = trace(
+      `${rule.label}（${rule.condition}）：本家 ${net > 0 ? '+' : ''}${net}`,
+      'LEGAL',
+    );
+    t.events = events.map((e) => e.type);
+
+    return {
+      state: { ...state, points, scoreLog, runCount: state.runCount + 1 },
+      events,
+      trace: t,
+    };
   }
 
   /**
@@ -148,7 +231,9 @@ export class FourBallEngine implements GameEngine<FourBallState> {
 
     const current = state.points[seat] ?? 0;
     const nextScore = current + delta;
-    if (nextScore < 0) {
+    // 追分允许负分（黑金 -20），所以「不许扣成负数」只约束从非负拉成负的情况；
+    // 本来就是负数时，加分/扣分都是改账，不该拦住。
+    if (nextScore < 0 && current >= 0) {
       const t = trace('扣分后比分不能为负', 'ILLEGAL');
       t.reasons.push(`当前 ${current} 分，尝试 ${delta}`);
       return { state, events: [], trace: t };
@@ -166,7 +251,7 @@ export class FourBallEngine implements GameEngine<FourBallState> {
     let frameStatus = state.frameStatus;
     let winReason = state.winReason;
     let winnerPlayerIndex = state.winnerPlayerIndex;
-    if (nextScore >= rules.targetPoints) {
+    if (rules.targetPoints > 0 && nextScore >= rules.targetPoints) {
       winReason = `先达到 ${rules.targetPoints} 分`;
       frameStatus = 'WON';
       winnerPlayerIndex = seat;
@@ -255,7 +340,7 @@ export class FourBallEngine implements GameEngine<FourBallState> {
 
     let frameStatus = state.frameStatus;
     let winReason: string | undefined;
-    if ((points[seat] ?? 0) >= rules.targetPoints) {
+    if (rules.targetPoints > 0 && (points[seat] ?? 0) >= rules.targetPoints) {
       frameStatus = 'WON';
       winReason = `先达到 ${rules.targetPoints} 分`;
       events.push(
@@ -323,7 +408,7 @@ export class FourBallEngine implements GameEngine<FourBallState> {
       events.push(
         makeEvent('SCORE_ADDED', { playerIndex: nextSeat, points: penalty, reason: 'foul' }),
       );
-      if ((points[nextSeat] ?? 0) >= rules.targetPoints) {
+      if (rules.targetPoints > 0 && (points[nextSeat] ?? 0) >= rules.targetPoints) {
         frameStatus = 'WON';
         winnerPlayerIndex = nextSeat;
         winReason = `对手犯规，先达到 ${rules.targetPoints} 分`;
@@ -434,10 +519,12 @@ export class FourBallEngine implements GameEngine<FourBallState> {
     ctx: EngineContext,
     trace: (d: string, v: FourBallResult['trace']['validation']) => FourBallResult['trace'],
   ): FourBallResult {
-    const t = trace('重新计分', 'LEGAL');
+    const t = trace('清空比分，重新开始', 'LEGAL');
     t.events = ['RERACK'];
+    // 重开是唯一会清零的动作：追分本身是整场累计，不分局重置。
+    const zeroed = Object.fromEntries(Object.keys(state.points).map((k) => [k, 0]));
     return {
-      state: this.startFrame(state, state.activePlayerIndex, ctx),
+      state: this.startFrame({ ...state, points: { ...state.points, ...zeroed } }, state.activePlayerIndex, ctx),
       events: [makeEvent('RERACK', { reason: 'manual' })],
       trace: t,
     };
@@ -475,10 +562,17 @@ export class FourBallEngine implements GameEngine<FourBallState> {
     };
   }
 
-  startFrame(_state: FourBallState, breakPlayerIndex: number, ctx: EngineContext): FourBallState {
+  /**
+   * 开新一局。
+   *
+   * 追分是**整场累计**：分数属于这场比赛，不属于某一局，
+   * 所以开新局只重置回合/犯规/胜负状态，保留每个座位的净分。
+   * 需要清零请用 RERACK（显式动作）。
+   */
+  startFrame(state: FourBallState, breakPlayerIndex: number, ctx: EngineContext): FourBallState {
     const seats = Math.max(2, ctx.players.length);
     const points: Record<number, number> = {};
-    for (let i = 0; i < seats; i += 1) points[i] = 0;
+    for (let i = 0; i < seats; i += 1) points[i] = state.points[i] ?? 0;
     const breaker = breakPlayerIndex >= 0 && breakPlayerIndex < seats ? breakPlayerIndex : 0;
     return {
       activePlayerIndex: breaker,
@@ -542,12 +636,20 @@ export function applyFourBallEvent(state: FourBallState, event: MatchEvent): Fou
       const playerIndex =
         typeof p.playerIndex === 'number' ? p.playerIndex : state.activePlayerIndex;
       const points = typeof p.points === 'number' ? p.points : 0;
-      const source: ScoreRecord['source'] =
-        p.reason === 'foul' ? 'foul' : p.reason === 'manual' ? 'manual' : 'pot';
+      const isChase = p.reason === 'chase';
+      const source: ScoreRecord['source'] = isChase
+        ? 'chase'
+        : p.reason === 'foul'
+          ? 'foul'
+          : p.reason === 'manual'
+            ? 'manual'
+            : 'pot';
       return {
         ...state,
         points: { ...state.points, [playerIndex]: (state.points[playerIndex] ?? 0) + points },
-        runCount: p.continues === true ? state.runCount + 1 : 0,
+        // 追分一次结算会发多条 SCORE_ADDED，只有本家那条带 continues；
+        // 其余几条不能把 runCount 清掉，否则重放与 live 不一致。
+        runCount: p.continues === true ? state.runCount + 1 : isChase ? state.runCount : 0,
         scoreLog: [
           ...state.scoreLog,
           {
@@ -555,6 +657,7 @@ export function applyFourBallEvent(state: FourBallState, event: MatchEvent): Fou
             points,
             turnNumber: state.turnNumber,
             source,
+            ...(typeof p.chaseKind === 'string' ? { chaseKind: p.chaseKind } : {}),
             ...(typeof p.ball === 'number' ? { ball: p.ball } : {}),
           },
         ],

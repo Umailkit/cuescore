@@ -83,7 +83,9 @@ export function buildRanking(matches: Match[]): RankingRow[] {
           total: 0,
           matches: 0,
           frames: 0,
-          best: 0,
+          // 初值取本场分数而不是 0：追分会出现负分，用 0 打底会把
+          // 「单场最高」显示成 0，比实际成绩还高。
+          best: total,
           matchIds: new Set<string>(),
         } as RankingRow & { matchIds: Set<string> });
 

@@ -118,4 +118,13 @@ describe('buildRanking', () => {
   it('returns an empty ranking when nothing is scored', () => {
     expect(buildRanking([match({ players: [{ displayName: '张三' }] })])).toEqual([]);
   });
+
+  it('keeps a negative best (追分) instead of flooring it at zero', () => {
+    const m = match({
+      players: [{ displayName: '张三' }, { displayName: '李四' }],
+      frames: [frame({ 0: 24, 1: -24 })],
+    });
+    const rows = buildRanking([m]);
+    expect(rows[1]).toMatchObject({ name: '李四', total: -24, best: -24 });
+  });
 });
