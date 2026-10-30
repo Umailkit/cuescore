@@ -1,5 +1,7 @@
 # CueScore · 台球计分
 
+**在线使用：https://umailkit.github.io/cuescore/**（手机浏览器打开，可「添加到主屏幕」当 App 用）
+
 一个移动端优先的台球记分 PWA。中式八球、九球、六球、四球、斯诺克五套规则引擎全部可用，
 离线可跑，数据只存在本机（IndexedDB）。
 
