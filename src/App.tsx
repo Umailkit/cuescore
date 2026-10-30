@@ -11,10 +11,17 @@ import { SettingsPage } from '@ui/pages/SettingsPage';
 import { DisplayPage } from '@ui/pages/DisplayPage';
 import { NotFoundPage } from '@ui/pages/NotFoundPage';
 
+/**
+ * 部署在子路径（GitHub Pages /cuescore/）时，路由必须带同名 basename，
+ * 否则 pathname 是 /cuescore/match/xxx，路由表里一条都匹配不上。
+ * BASE_URL 由 Vite 的 `base` 决定：根部署为 '/'，子路径为 '/cuescore/'。
+ */
+const BASENAME = import.meta.env.BASE_URL.replace(/\/+$/, '') || '/';
+
 export function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={BASENAME}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/new" element={<NewMatchPage />} />
