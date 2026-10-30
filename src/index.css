@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Design tokens — Dark is the default theme; .light overrides.
+   Colors are raw RGB triplets so Tailwind's `<alpha-value>` works.
+   ============================================================ */
+@layer base {
+  :root,
+  .dark {
+    --c-bg: 10 18 15;
+    --c-surface: 16 26 22;
+    --c-surface-2: 24 37 31;
+    --c-border: 38 54 46;
+    --c-text: 232 240 235;
+    --c-muted: 150 170 160;
+    --c-felt: 31 122 77;
+    --c-felt-strong: 26 145 92;
+    --c-gold: 212 175 55;
+    --c-danger: 200 60 60;
+    color-scheme: dark;
+  }
+
+  .light {
+    --c-bg: 244 247 245;
+    --c-surface: 255 255 255;
+    --c-surface-2: 240 244 242;
+    --c-border: 214 222 218;
+    --c-text: 18 28 24;
+    --c-muted: 90 105 98;
+    --c-felt: 22 110 68;
+    --c-felt-strong: 18 130 80;
+    --c-gold: 180 140 30;
+    --c-danger: 190 50 50;
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text antialiased;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
+      'Microsoft YaHei', sans-serif;
+    /* respect notches on phones */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* Larger, clearer tap targets; reduce accidental misfires. */
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+  }
+  .no-select {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Tabular numerals — keeps live scores from jittering as digits change. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+}
