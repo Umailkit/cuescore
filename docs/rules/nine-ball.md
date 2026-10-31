@@ -139,7 +139,40 @@ interface NineBallState {
 
 ---
 
-## 5. 已知未实现
+## 5. 追分模式（九球）
+
+台球厅里九球除了逐球记分，也常按「追分」结算。引擎用同一套状态同时支持两种口径，
+靠一条规则区分：**记分制 + 无目标分（`targetPoints = 0`）= 追分**。
+
+| 口径 | 触发条件 | 主操作 | 分数生命周期 |
+|------|----------|--------|--------------|
+| 逐球记分 | `scoringMode='points'` 且 `targetPoints > 0` | `+1 / +4 / +8 / +10`（可扣） | 每局从 0 开始 |
+| 追分 | `scoringMode='points'` 且 `targetPoints = 0` | 普胜 / 小金 / 大金 / 黄金九 / 黑金 | **整场累计，新局不清零** |
+| 标准清台 | `scoringMode='sequence'` | 球台面板 + 推杆 | 无分数概念 |
+
+追分的规则表与四球完全一致（`fourBall/chase.ts` 是唯一事实来源）：
+
+| 档位 | 上家 | 下家 | 本家净得 |
+|------|------|------|----------|
+| 普胜 `normal` | +4 | — | +4 |
+| 小金 `smallGold` | +7 | — | +7 |
+| 大金 `bigGold` | +10 | +10 | +20 |
+| 黄金九 `goldNine` | +4 | +4 | +8 |
+| 黑金 `blackGold` | +10 | +10 | −20 |
+
+实现要点：
+
+- 新命令 `CHASE_SCORED`（`payload.kind` + 可选 `playerIndex`），一次结算发出
+  2~3 条 `SCORE_ADDED`，**只有本家那条带 `continues: true`**
+- 结算恒为零和，且**不判胜负** —— 追分没有目标分，收场由「结束比赛」决定
+- 重放 `SCORE_ADDED` 时不再把分数钳到 0（黑金会倒赔成负数），
+  `runCount` 按 `continues` 还原
+- `ADJUST_SCORE` 只拦「从非负直接拉负」，允许已负的分数继续被扣
+- 模板：`九球追分 · 不限局数`（`nine-ball.chase`）
+
+---
+
+## 6. 已知未实现
 
 - 一杆多颗球：一次 `BALL_POTTED` 只记一颗，多球需多次记录。
 - `breakRequiresPocketOrRailCount`：已定义并归一化，**尚未在判定中生效**（默认 0，等同于不校验）。

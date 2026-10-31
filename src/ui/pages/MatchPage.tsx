@@ -411,6 +411,24 @@ export function MatchPage() {
                 const isActive = i === m.activePlayerIndex && playing;
                 const group = facts?.playerGroups[i] ?? null;
                 const isWinner = ended && m.winnerPlayerId === p.playerId && p.playerId;
+                const score = facts?.points ? (facts.points[i] ?? 0) : (wins[i] ?? 0);
+                // 负号也占一个字符位，所以用 String(score) 而不是 Math.abs
+                const digits = String(score).length;
+                // 字号按位数收：追分很容易到两位数甚至三位数，
+                // 固定 22vh 会让「20」被格子裁掉。
+                const scoreSize = compact
+                  ? digits >= 4
+                    ? 'text-[clamp(1.25rem,5vh,2.5rem)]'
+                    : digits === 3
+                      ? 'text-[clamp(1.75rem,7vh,3.5rem)]'
+                      : 'text-[clamp(2.5rem,11vh,6rem)]'
+                  : digits >= 4
+                    ? 'text-[clamp(2rem,7vh,4.5rem)]'
+                    : digits === 3
+                      ? 'text-[clamp(2.5rem,10vh,6rem)]'
+                      : digits === 2
+                        ? 'text-[clamp(3rem,15vh,8rem)]'
+                        : 'text-[clamp(4.5rem,22vh,13rem)]';
                 return (
                   <div
                     key={i}
@@ -440,18 +458,15 @@ export function MatchPage() {
                     </div>
 
                     {/* 主数字随视口高度放大：站着看也读得清。
-                        计分制玩法显示得分，其余显示已赢局数；
-                        多人时按格子数量收字号，避免把操作区挤出去。 */}
+                        计分制玩法显示得分，其余显示已赢局数。 */}
                     <div
                       className={cn(
-                        'tnum my-1 font-bold leading-[0.85] tracking-tight',
-                        compact
-                          ? 'text-[clamp(2.5rem,11vh,6rem)]'
-                          : 'text-[clamp(4.5rem,22vh,13rem)]',
+                        'tnum my-1 max-w-full font-bold leading-[0.85] tracking-tight',
+                        scoreSize,
                         isActive ? 'text-felt-strong' : 'text-text',
                       )}
                     >
-                      {facts?.points ? (facts.points[i] ?? 0) : (wins[i] ?? 0)}
+                      {score}
                     </div>
 
                     {/* 进度点：计分制且目标 ≤9 时表示分数进度，否则表示局数进度。
