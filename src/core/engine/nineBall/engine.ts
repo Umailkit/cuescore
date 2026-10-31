@@ -12,6 +12,7 @@ import {
   type NineBallState,
 } from './types';
 import { resolveNineBallRules } from './rules';
+import { CHASE_RULES, chaseDeltas, chaseNet, type ChaseKind } from '../fourBall/chase';
 import { createId } from '../../util/id';
 
 export interface NineBallResult extends EngineResult<NineBallState> {
@@ -139,6 +140,8 @@ export class NineBallEngine implements GameEngine<NineBallState> {
         return this.onFoul(state, command, ctx, rules, trace);
       case 'ADJUST_SCORE':
         return this.onAdjustScore(state, command, ctx, rules, trace);
+      case 'CHASE_SCORED':
+        return this.onChase(state, command, ctx, trace);
       case 'END_TURN':
         return this.onEndTurn(state, trace);
       case 'PUSH_OUT':
@@ -186,6 +189,80 @@ export class NineBallEngine implements GameEngine<NineBallState> {
 
   // ---------------------------------------------------------------- score ---
   /**
+   * 追分结算：按规则表在座位之间转移分值。
+   *
+   * 九球的追分与四球用的是同一张规则表（普胜 / 小金 / 大金 / 黄金九 / 黑金），
+   * 因为台球厅里「追分」本身就是跨球种的玩法，分值不随球种变。
+   * 规则表只维护一份，放在 `fourBall/chase.ts`。
+   *
+   * 关键点：
+   *  - 结算恒为零和：本家赢多少，上家/下家就输多少
+   *  - 一次结算可能改动三个座位，但只占一步撤销（同一条命令）
+   *  - **不判胜负**：追分没有目标分，收场由用户点「结束比赛」决定
+   */
+  private onChase(
+    state: NineBallState,
+    command: MatchCommand,
+    ctx: EngineContext,
+    trace: (d: string, v: NineBallResult['trace']['validation']) => NineBallResult['trace'],
+  ): NineBallResult {
+    const raw = (command.payload ?? {}) as { kind?: unknown; playerIndex?: unknown };
+    const kind = String(raw.kind ?? '') as ChaseKind;
+    const rule = CHASE_RULES[kind];
+    if (!rule) {
+      const t = trace(`未知的得分类型 ${String(raw.kind)}`, 'ILLEGAL');
+      t.reasons.push(`可选：${Object.keys(CHASE_RULES).join(' / ')}`);
+      return { state, events: [], trace: t };
+    }
+
+    const seats = Math.max(1, Object.keys(state.points).length || ctx.players.length);
+    let seat = state.activePlayerIndex;
+    if (raw.playerIndex !== undefined && raw.playerIndex !== null) {
+      const idx = Number(raw.playerIndex);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= seats) {
+        const t = trace(`无效的球员席位 ${String(raw.playerIndex)}`, 'ILLEGAL');
+        t.reasons.push(`本场只有 ${seats} 位选手`);
+        return { state, events: [], trace: t };
+      }
+      seat = idx;
+    }
+
+    const deltas = chaseDeltas(kind, seat, seats);
+    const points = { ...state.points };
+    const events: MatchEvent[] = [];
+
+    for (const key of Object.keys(deltas).sort((a, b) => Number(a) - Number(b))) {
+      const s = Number(key);
+      const delta = deltas[s] ?? 0;
+      if (!delta) continue;
+      points[s] = (points[s] ?? 0) + delta;
+      events.push(
+        makeEvent('SCORE_ADDED', {
+          playerIndex: s,
+          points: delta,
+          reason: 'chase',
+          chaseKind: kind,
+          // 只有本家那一条算「一次得分」，否则重放会把一次结算数成三次
+          ...(s === seat ? { continues: true } : {}),
+        }),
+      );
+    }
+
+    const net = chaseNet(kind);
+    const t = trace(
+      `${rule.label}（${rule.condition}）：本家 ${net > 0 ? '+' : ''}${net}`,
+      'LEGAL',
+    );
+    t.events = events.map((e) => e.type);
+
+    return {
+      state: { ...state, points, runCount: state.runCount + 1 },
+      events,
+      trace: t,
+    };
+  }
+
+  /**
    * 人工加减分（记分制）。
    *
    * 这是台球厅记分的核心动作：进一颗球点一次 +1，记错了点一次 -1 改回来。
@@ -228,7 +305,9 @@ export class NineBallEngine implements GameEngine<NineBallState> {
 
     const current = state.points[seat] ?? 0;
     const nextScore = current + delta;
-    if (nextScore < 0) {
+    // 追分场面上负分是常态（黑金倒赔），所以只拦「从非负直接拉负」的误操作，
+    // 不拦「已经很负了继续被扣」。
+    if (nextScore < 0 && current >= 0) {
       const t = trace('扣分后比分不能为负', 'ILLEGAL');
       t.reasons.push(`当前 ${current} 分，尝试 ${delta}`);
       return { state, events: [], trace: t };
@@ -713,9 +792,16 @@ export class NineBallEngine implements GameEngine<NineBallState> {
     const seats = Math.max(2, ctx.players.length);
     const consecutiveFouls: Record<number, number> = {};
     const points: Record<number, number> = {};
+    /**
+     * 追分是整场累计：记分制 + 没有目标分（targetPoints=0）时，
+     * 新局要接着上一局的分数走，否则每次「赢一局」都会把追分成绩清零。
+     * 普通记分制（有目标分）仍然每局从 0 开始。
+     */
+    const rules = this.rulesOf(ctx);
+    const carryOver = rules.scoringMode === 'points' && rules.targetPoints === 0;
     for (let i = 0; i < seats; i += 1) {
       consecutiveFouls[i] = 0;
-      points[i] = 0;
+      points[i] = carryOver ? (_state.points[i] ?? 0) : 0;
     }
     const breaker = breakPlayerIndex >= 0 && breakPlayerIndex < seats ? breakPlayerIndex : 0;
     return {
@@ -835,7 +921,10 @@ export function applyNineBallEvent(
       const next = (state.points[playerIndex] ?? 0) + delta;
       return {
         ...state,
-        points: { ...state.points, [playerIndex]: Math.max(0, next) },
+        // 追分允许负分（黑金倒赔），不能再钳到 0，否则重放与实时不一致
+        points: { ...state.points, [playerIndex]: next },
+        // 追分本家那条带 continues，重放同样要算一次击球
+        runCount: p.continues === true ? state.runCount + 1 : state.runCount,
       };
     }
     case 'BALL_MISSED':

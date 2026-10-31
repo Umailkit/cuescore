@@ -103,6 +103,31 @@ export const MATCH_TEMPLATES: MatchTemplate[] = [
     ruleSet: RULESETS['nine-ball'],
   },
   {
+    id: 'nine-ball.chase',
+    gameType: 'nine-ball',
+    name: '九球追分 · 不限局数',
+    description: '2–4 人，按追分规则表结算（上家/下家赔付），整场累计。',
+    matchFormat: 'singles',
+    target: 0,
+    ruleSet: {
+      id: ruleSetId('nine-ball', 'chase'),
+      name: 'CueScore 追分规则（九球）',
+      version: '2.0.0',
+      description:
+        '追分：普胜 +4、小金 +7、大金 +20、黄金九 +8、黑金 -20，由上家/下家按规则表赔付。',
+      source: 'CueScore',
+      config: {
+        // 记分制 + 无目标分 = 追分口径（整场累计、不按分数收场）
+        scoringMode: 'points',
+        targetPoints: 0,
+        raceTo: 0,
+        pushOut: true,
+        nineOnBreak: true,
+        quickPoints: [1, 4, 8, 10],
+      },
+    },
+  },
+  {
     id: 'six-ball.standard.2p.t7',
     gameType: 'six-ball',
     name: '标准六球 · 2 人 · 7 分',

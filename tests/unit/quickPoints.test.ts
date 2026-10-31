@@ -9,6 +9,7 @@ import type { FourBallState } from '@core/engine/fourBall/types';
 import { DEFAULT_QUICK_POINTS, quickActions } from '@app/services/boardView';
 
 const NINE = MATCH_TEMPLATES.find((t) => t.gameType === 'nine-ball')!;
+const NINE_CHASE = MATCH_TEMPLATES.find((t) => t.id === 'nine-ball.chase')!;
 const FOUR = MATCH_TEMPLATES.find((t) => t.gameType === 'four-ball')!;
 
 const nineEngine = new NineBallEngine();
@@ -43,14 +44,29 @@ function fourFresh(config?: Record<string, unknown>): FourBallState {
   return fourEngine.createInitialState(ctxFor(FOUR, config));
 }
 
-describe('快捷档位：加一 / 加四 / 加八 / 加十', () => {
-  it('默认档位就是 1 / 4 / 8 / 10', () => {
+describe('快捷档位：逐球记分 / 追分五档', () => {
+  it('历史档位默认 1 / 4 / 8 / 10', () => {
     expect(DEFAULT_QUICK_POINTS).toEqual([1, 4, 8, 10]);
   });
 
-  it('九球（记分制）加扣成对给出四档', () => {
+  it('九球（有目标分）加扣成对给出四档', () => {
     const labels = quickActions('nine-ball', NINE.ruleSet.config).map((q) => q.label);
     expect(labels).toEqual(['+1', '+4', '+8', '+10', '-1', '-4', '-8', '-10']);
+  });
+
+  it('九球追分（无目标分）改走五档得分类型', () => {
+    const actions = quickActions('nine-ball', NINE_CHASE.ruleSet.config);
+    expect(actions.map((q) => q.label)).toEqual(['普胜', '小金', '大金', '黄金九', '黑金']);
+    expect(actions.map((q) => q.hint)).toEqual(['+4', '+7', '+20', '+8', '-20']);
+    expect(actions.every((q) => q.action.type === 'CHASE_SCORED')).toBe(true);
+  });
+
+  it('九球标准清台制没有分可追，仍然是推杆', () => {
+    const labels = quickActions('nine-ball', {
+      ...NINE.ruleSet.config,
+      scoringMode: 'sequence',
+    }).map((q) => q.label);
+    expect(labels).toEqual(['推杆（Push Out）']);
   });
 
   it('四球不是档位，而是追分五档得分类型', () => {
@@ -67,6 +83,12 @@ describe('快捷档位：加一 / 加四 / 加八 / 加十', () => {
     expect(actions.every((q) => q.action.type === 'CHASE_SCORED')).toBe(true);
   });
 
+  it('四球与九球追分的按钮完全一致（同一张规则表）', () => {
+    expect(quickActions('four-ball', FOUR.ruleSet.config)).toEqual(
+      quickActions('nine-ball', NINE_CHASE.ruleSet.config),
+    );
+  });
+
   it('档位由规则集配置决定，可覆盖（九球记分制）', () => {
     const labels = quickActions('nine-ball', {
       ...NINE.ruleSet.config,
@@ -78,16 +100,6 @@ describe('快捷档位：加一 / 加四 / 加八 / 加十', () => {
   it('非法档位配置回落到默认值', () => {
     const config = { ...NINE.ruleSet.config, quickPoints: [0, -1, 'x'] };
     expect(quickActions('nine-ball', config)).toHaveLength(DEFAULT_QUICK_POINTS.length * 2);
-    expect(quickActions('nine-ball', NINE.ruleSet.config).map((q) => q.label)).toEqual([
-      '+1',
-      '+4',
-      '+8',
-      '+10',
-      '-1',
-      '-4',
-      '-8',
-      '-10',
-    ]);
   });
 
   it('档位按钮发出的命令就是 ADJUST_SCORE + 对应分值', () => {

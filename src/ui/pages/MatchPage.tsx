@@ -9,6 +9,7 @@ import { Input } from '@ui/components/Input';
 import {
   buildBoardView,
   foulReasonOptions,
+  isChaseGame,
   quickActions,
   readFacts,
 } from '@app/services/boardView';
@@ -190,10 +191,11 @@ export function MatchPage() {
   // 四球没有球台（board 为 null），但加分按钮照常可用。
   const hasEngine = facts !== null;
   /**
-   * 四球走追分：整场累计，没有「本局」也没有「谁赢了这一局」。
+   * 追分口径：四球，以及**记分制**的九球（标准清台制没有分数概念）。
+   * 整场累计，没有「本局」也没有「谁赢了这一局」。
    * 记分员点的是「发生了什么」（普胜/大金…），分值由规则表算。
    */
-  const isChase = m.gameType === 'four-ball';
+  const isChase = isChaseGame(m.gameType, m.ruleSetSnapshot?.config);
   const compact = m.players.length > 2;
   const foulReasons = foulReasonOptions(m.gameType);
   // 这里不能用 useMemo：本组件在 current 为 null 时会提前 return，

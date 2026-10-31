@@ -526,8 +526,8 @@ export interface QuickAction {
 /**
  * 记分类玩法的快捷档位（台球厅常用：一、四、八、十）。
  *
- * 放 RuleSet.config.quickPoints 里，冻结进比赛快照 —— 以后改默认值
- * 不会影响已经在打的比赛。
+ * 九球有目标分时（Race To N）仍按这套档位逐球记分，方便记分员
+ * 「进一颗点 +1」；走追分（无目标分）时改用规则表五档。
  */
 export const DEFAULT_QUICK_POINTS: readonly number[] = [1, 4, 8, 10];
 
@@ -565,13 +565,32 @@ function deductActions(values: readonly number[]): QuickAction[] {
 }
 
 /**
+ * 这个玩法当前是不是「追分」口径。
+ *
+ * - 四球无条件走追分
+ * - 九球只在「记分制 + 没有目标分」时才算追分；有目标分（Race To N）
+ *   仍然是逐球记分那一套，标准清台制则没有分数概念。
+ *
+ * 判断放在这里而不是 UI 里，是为了让「按钮长什么样」和「引擎认什么命令」
+ * 用同一个来源，避免两边各判一次。
+ */
+export function isChaseGame(gameType: GameType, ruleSetConfig: unknown): boolean {
+  if (gameType === 'four-ball') return true;
+  if (gameType === 'nine-ball') {
+    const rules = resolveNineBallRules(ruleSetConfig as Record<string, unknown> | null);
+    return rules.scoringMode === 'points' && rules.targetPoints === 0;
+  }
+  return false;
+}
+
+/**
  * 玩法专属的快捷操作（app 层按 gameType 派生，UI 照发）。
  *
- * 四球走追分：五个得分类型，分值由规则表算，不让记分员填。
+ * 四球 / 记分制九球走追分：五个得分类型，分值由规则表算，不让记分员填。
  * 斯诺克要能「结束单杆」。
  */
 export function quickActions(gameType: GameType, ruleSetConfig: unknown): QuickAction[] {
-  if (gameType === 'four-ball') {
+  if (isChaseGame(gameType, ruleSetConfig)) {
     return CHASE_ORDER.map((kind) => {
       const rule = CHASE_RULES[kind];
       const net = chaseNet(kind);

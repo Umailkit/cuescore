@@ -71,6 +71,39 @@ test('six-ball: potting scores points and shows them on the scoreboard', async (
   await page.screenshot({ path: `${OUT}/p3-six-scored.png`, fullPage: true });
 });
 
+test('nine-ball: chase mode settles the same five outcomes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await createMatch(page, '九球', '九球追分 · 不限局数');
+
+  // 追分不靠球台，五个得分类型就是主操作
+  await expect(page.locator('[data-ball]')).toHaveCount(0);
+  for (const [label, hint] of [
+    ['普胜', '+4'],
+    ['小金', '+7'],
+    ['大金', '+20'],
+    ['黄金九', '+8'],
+    ['黑金', '-20'],
+  ] as const) {
+    const btn = page.getByRole('button', { name: new RegExp(`^${label}`) });
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText(hint);
+  }
+
+  // 两人局大金：对手一人赔 20
+  await page.getByRole('button', { name: /^大金/ }).click();
+  await expect(page.getByText(/总分 20 : -20/).first()).toBeVisible();
+
+  // 黑金本家倒赔，回到零和原点
+  await page.getByRole('button', { name: /^黑金/ }).click();
+  await expect(page.getByText(/总分 0 : 0/).first()).toBeVisible();
+
+  // 追分没有「本局谁赢了」，底部只留一个结束比赛
+  await expect(page.getByRole('button', { name: /^张三 赢/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /结束比赛/ })).toBeVisible();
+
+  await page.screenshot({ path: `${OUT}/p3-nine-chase.png`, fullPage: true });
+});
+
 test('four-ball: five chase outcomes settle between neighbours', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await createMatch(page, '四球', '四球追分 · 不限局数');
