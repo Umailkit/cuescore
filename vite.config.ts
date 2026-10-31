@@ -19,6 +19,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // 注册逻辑在 `src/main.tsx`（自带「新 SW 接管就重载」与每分钟 update），
+      // 不用插件注入的 registerSW.js，避免两处注册互相打架。
+      injectRegister: null,
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png', 'favicon.svg'],
       manifest: {
         name: 'CueScore 台球计分',
