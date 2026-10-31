@@ -53,6 +53,10 @@ export function HomePage() {
           <p className="mt-2 text-sm text-muted">
             台球比赛记录 · 实时计分 · 数据沉淀
           </p>
+          {/* 版本标记：排查「打开的是不是新版」时一眼可辨，别删 */}
+          <p className="mt-1 text-[11px] font-medium tracking-wide text-felt-strong">
+            追分版 v2 · 2026-10-31
+          </p>
         </div>
 
         {/* Primary action */}
